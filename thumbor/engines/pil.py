@@ -241,6 +241,21 @@ class Engine(BaseEngine):
 
         return ".jpeg"
 
+    def restore_palette_transparency(self, source):
+        # quantize() drops the transparency of an RGBA source, and it merges
+        # the colours of transparent pixels into opaque ones. Quantize the
+        # colours to 255 entries instead, keep index 255 for transparency, and
+        # point every mostly transparent pixel at it.
+        alpha = source.getchannel("A")
+        if alpha.getextrema()[0] == 255:
+            return
+
+        palette_image = source.convert("RGB").quantize(colors=255)
+        mask = alpha.point(lambda a: 255 if a < 128 else 0)
+        palette_image.paste(255, mask=mask)
+        palette_image.info["transparency"] = 255
+        self.image = palette_image
+
     # TODO: Refactor this
     def read(  # noqa
         self, extension=None, quality=None
@@ -276,7 +291,12 @@ class Engine(BaseEngine):
                     if pillow_features.check("libimagequant")
                     else None
                 )
+                source = self.image
                 self.image = self.image.quantize(method=quantize_method)
+                if source.mode == "RGBA" and (
+                    requested_extension or self.extension
+                ) == ".gif":
+                    self.restore_palette_transparency(source)
 
         ext = requested_extension or self.get_default_extension()
 
